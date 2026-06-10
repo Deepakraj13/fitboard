@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FitBoard — Leaderboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07080a;--s1:#0f1015;--s2:#171820;--s3:#1f2030;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
+  --a1:#e8ff47;--a2:#47ffe8;--a3:#ff6b6b;
+  --t1:#f2f2f4;--t2:#9899a8;--t3:#52535f;
+  --fh:'Bebas Neue',sans-serif;--fb:'Outfit',sans-serif;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--t1);font-family:var(--fb);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+.blob{position:fixed;border-radius:50%;filter:blur(120px);opacity:0.12;pointer-events:none;z-index:0}
+.blob1{width:600px;height:600px;background:var(--a1);top:-200px;right:-100px}
+.blob2{width:500px;height:500px;background:var(--a2);bottom:-150px;left:-100px}
+.wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:0 1.5rem 4rem}
+
+/* ══ NAV ══ */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:1.5rem 0 2rem;border-bottom:1px solid var(--border);margin-bottom:2rem;flex-wrap:wrap;gap:1rem}
+.nav-logo{font-family:var(--fh);font-size:2.2rem;letter-spacing:0.06em;line-height:1}
+.nav-logo span{color:var(--a1)}
+.nav-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.last-updated{font-size:0.72rem;color:var(--t3)}
+.btn{display:flex;align-items:center;gap:7px;border:none;border-radius:100px;padding:0.5rem 1.1rem;font-family:var(--fb);font-weight:600;font-size:0.8rem;cursor:pointer;transition:all 0.15s}
+.btn:active{transform:scale(0.97)}
+.btn-ghost{background:var(--s2);border:1px solid var(--border);color:var(--t2)}.btn-ghost:hover{color:var(--t1);border-color:var(--border2)}
+.btn-accent{background:var(--a1);color:#07080a}.btn-accent:hover{opacity:0.85}
+.btn-refresh.spinning svg{animation:spin 1s linear infinite}
+
+/* ══ CONTROLS ══ */
+.controls-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap}
+.tabs{display:flex;gap:4px;background:var(--s1);border:1px solid var(--border);border-radius:100px;padding:4px;flex-wrap:wrap}
+.tab{padding:0.42rem 1rem;border-radius:100px;font-size:0.75rem;font-weight:600;cursor:pointer;color:var(--t3);border:none;background:transparent;font-family:var(--fb);transition:all 0.2s;white-space:nowrap}
+.tab.active{background:var(--a1);color:#07080a}
+.metric-toggle{display:flex;gap:4px;background:var(--s1);border:1px solid var(--border);border-radius:100px;padding:4px}
+.mtab{padding:0.42rem 1rem;border-radius:100px;font-size:0.75rem;font-weight:600;cursor:pointer;color:var(--t3);border:none;background:transparent;font-family:var(--fb);transition:all 0.2s;white-space:nowrap}
+.mtab.active{background:var(--a2);color:#07080a}
+.filter-wrap{position:relative}
+.filter-btn{background:var(--s1);border:1px solid var(--border);color:var(--t2);border-radius:100px;padding:0.42rem 1rem;font-size:0.75rem;font-weight:600;cursor:pointer;font-family:var(--fb);white-space:nowrap;display:flex;align-items:center;gap:6px;transition:all 0.2s}
+.filter-btn:hover{border-color:var(--border2);color:var(--t1)}
+.filter-btn.has-filter{border-color:rgba(199,125,255,0.4);color:#c77dff;background:rgba(199,125,255,0.08)}
+.filter-dropdown{display:none;position:absolute;top:calc(100% + 8px);left:0;background:var(--s2);border:1px solid var(--border2);border-radius:14px;padding:0.75rem;min-width:220px;z-index:200;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.filter-dropdown.open{display:block}
+.filter-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem}
+.filter-title{font-size:0.72rem;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;font-weight:600}
+.filter-clear{font-size:0.7rem;color:var(--a3);cursor:pointer;background:none;border:none;font-family:var(--fb);padding:0}.filter-clear:hover{text-decoration:underline}
+.filter-list{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
+.filter-item{display:flex;align-items:center;gap:8px;padding:0.45rem 0.6rem;border-radius:8px;cursor:pointer;transition:background 0.15s}
+.filter-item:hover{background:var(--s3)}
+.filter-item input[type=checkbox]{accent-color:var(--a2);width:14px;height:14px;flex-shrink:0;cursor:pointer}
+.filter-item-name{font-size:0.82rem;flex:1}
+.filter-apply{width:100%;margin-top:0.75rem;background:var(--a2);color:#07080a;border:none;border-radius:8px;padding:0.5rem;font-family:var(--fb);font-weight:700;font-size:0.78rem;cursor:pointer}.filter-apply:hover{opacity:0.85}
+.compare-banner{background:rgba(199,125,255,0.08);border:1px solid rgba(199,125,255,0.2);border-radius:10px;padding:0.6rem 1rem;margin-bottom:1rem;font-size:0.77rem;color:#c77dff;display:none;align-items:center;justify-content:space-between;gap:8px}
+.compare-banner.visible{display:flex}
+
+/* ══ MANAGE MEMBERS PANEL ══ */
+.manage-panel{background:var(--s1);border:1px solid rgba(232,255,71,0.2);border-radius:16px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;display:none}
+.manage-panel.visible{display:block}
+.manage-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
+.manage-title{font-family:var(--fh);font-size:1.1rem;letter-spacing:0.05em;color:var(--a1)}
+.manage-subtitle{font-size:0.72rem;color:var(--t3);margin-top:2px}
+.manage-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:1rem}
+.manage-item{display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:0.6rem 0.85rem;cursor:pointer;transition:border-color 0.15s}
+.manage-item:hover{border-color:var(--border2)}
+.manage-item.active{border-color:rgba(71,255,232,0.35);background:rgba(71,255,232,0.04)}
+.manage-item input[type=checkbox]{accent-color:var(--a2);width:15px;height:15px;flex-shrink:0;cursor:pointer}
+.manage-item-av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;flex-shrink:0}
+.manage-item-info{flex:1;min-width:0}
+.manage-item-name{font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.manage-item-sync{font-size:0.65rem;color:var(--t3);margin-top:1px}
+.manage-actions{display:flex;gap:8px;align-items:center}
+.manage-apply{background:var(--a2);color:#07080a;border:none;border-radius:8px;padding:6px 16px;font-family:var(--fb);font-weight:700;font-size:0.78rem;cursor:pointer;transition:opacity 0.15s}
+.manage-apply:hover{opacity:0.85}
+.manage-apply.saving{opacity:0.5;cursor:not-allowed}
+.manage-saved{font-size:0.72rem;color:var(--a2);display:none}
+.manage-saved.show{display:inline}
+.no-members{font-size:0.82rem;color:var(--t3);padding:1rem 0;text-align:center}
+
+/* ══ SYNC BAR ══ */
+.sync-bar{display:flex;align-items:center;justify-content:space-between;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:0.6rem 1rem;margin-bottom:1.5rem;gap:1rem;flex-wrap:wrap}
+.sync-msg{font-size:0.75rem;color:var(--t3)}.sync-msg.ok{color:var(--a2)}.sync-msg.err{color:var(--a3)}
+
+/* ══ STATS ══ */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:2.5rem}
+.stat{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:1.1rem 1.25rem;position:relative;overflow:hidden}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--a1);opacity:0.4}
+.stat.hi::after{opacity:1;background:linear-gradient(90deg,var(--a1),var(--a2))}
+.stat-label{font-size:0.67rem;color:var(--t3);letter-spacing:0.1em;text-transform:uppercase;font-weight:600;margin-bottom:6px}
+.stat-val{font-family:var(--fh);font-size:2rem;letter-spacing:0.02em;color:var(--a1);line-height:1}
+.stat-val.dim{color:var(--t1)}.stat-sub{font-size:0.7rem;color:var(--t3);margin-top:4px}
+
+/* ══ DASH ══ */
+.dash{display:grid;grid-template-columns:1fr 380px;gap:1.5rem;align-items:start}
+@media(max-width:900px){.dash{grid-template-columns:1fr}}
+.panel{background:var(--s1);border:1px solid var(--border);border-radius:16px;padding:1.5rem;margin-bottom:1.5rem}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+.panel-title{font-family:var(--fh);font-size:1.2rem;letter-spacing:0.05em}
+.panel-sub{font-size:0.72rem;color:var(--t3);margin-top:2px}
+.chart-wrap{position:relative;height:220px}
+.board-list{display:flex;flex-direction:column;gap:8px}
+.board-item{background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:0.85rem 1rem;display:flex;align-items:center;gap:12px;transition:border-color 0.2s,transform 0.15s;position:relative;overflow:hidden}
+.board-item:hover{border-color:var(--border2);transform:translateX(3px)}
+.rank-num{width:28px;text-align:center;font-family:var(--fh);font-size:1.4rem;color:var(--t3);flex-shrink:0}
+.rank-num.g{color:#ffd166}.rank-num.s{color:#a8b2c3}.rank-num.b{color:#c87941}
+.av-lg{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.82rem;font-weight:700;flex-shrink:0}
+.entry-info{flex:1;min-width:0}.entry-name{font-size:0.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.entry-sub{font-size:0.68rem;color:var(--t3);margin-top:2px}
+.entry-metric{text-align:right;flex-shrink:0}
+.entry-metric-n{font-family:var(--fh);font-size:1.3rem;color:var(--a2);letter-spacing:0.02em}
+.entry-metric-l{font-size:0.62rem;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em}
+.entry-bar{position:absolute;bottom:0;left:0;height:2px;background:linear-gradient(90deg,var(--a2),var(--a1));transition:width 0.7s cubic-bezier(0.16,1,0.3,1)}
+.empty{text-align:center;padding:3rem 2rem;color:var(--t3)}
+.empty-icon{font-size:2.5rem;margin-bottom:0.75rem;opacity:0.35}
+.empty p{font-size:0.85rem;line-height:1.7}.empty strong{color:var(--t2)}
+.loading{display:flex;align-items:center;justify-content:center;padding:3rem;gap:10px;color:var(--t3);font-size:0.78rem;letter-spacing:0.05em}
+.spin{width:18px;height:18px;border:2px solid var(--border2);border-top-color:var(--a1);border-radius:50%;animation:spin 0.75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+
+/* ══ GRANT OVERLAY ══ */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:500;align-items:center;justify-content:center;padding:1.5rem;backdrop-filter:blur(4px)}
+.overlay.open{display:flex}
+.grant-modal{background:var(--s2);border:1px solid var(--border2);border-radius:20px;padding:2rem 2rem 2.5rem;max-width:420px;width:100%;text-align:center;animation:fadeUp 0.25s ease both;position:relative}
+.grant-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--t3);font-size:1.2rem;cursor:pointer;line-height:1;padding:4px;transition:color 0.15s}
+.grant-close:hover{color:var(--t1)}
+.grant-icon{font-size:2.5rem;margin-bottom:0.75rem}
+.grant-modal h2{font-family:var(--fh);font-size:1.8rem;letter-spacing:0.05em;margin-bottom:0.5rem}
+.grant-modal p{font-size:0.82rem;color:var(--t2);line-height:1.7;margin-bottom:1.25rem}
+
+/* scope list */
+.scope-list{text-align:left;background:var(--s3);border:1px solid var(--border);border-radius:12px;padding:0.85rem 1rem;margin-bottom:1.25rem;display:flex;flex-direction:column;gap:7px}
+.scope-item{display:flex;align-items:center;gap:9px;font-size:0.78rem;color:var(--t2)}
+.scope-item svg{width:14px;height:14px;flex-shrink:0;color:var(--a2)}
+.scope-item.no{color:var(--t3)}.scope-item.no svg{color:var(--a3)}
+
+/* google button */
+.google-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:var(--a1);color:#07080a;border:none;border-radius:12px;padding:0.85rem 1.5rem;font-family:var(--fb);font-weight:700;font-size:0.9rem;cursor:pointer;transition:opacity 0.15s,transform 0.12s;margin-bottom:0.6rem}
+.google-btn:hover{opacity:0.88}.google-btn:active{transform:scale(0.98)}
+.google-btn:disabled{opacity:0.45;cursor:not-allowed;transform:none}
+.google-btn svg{width:18px;height:18px;flex-shrink:0}
+.grant-note{font-size:0.7rem;color:var(--t3);line-height:1.6}
+
+/* progress */
+.progress-wrap{margin:1rem 0}
+.progress-bar{background:var(--s3);border-radius:100px;height:6px;overflow:hidden;margin:0.6rem 0}
+.progress-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--a2),var(--a1));transition:width 0.4s ease;width:0%}
+.progress-msg{font-size:0.8rem;color:var(--t2);line-height:1.6}
+.progress-detail{font-size:0.7rem;color:var(--t3);margin-top:3px}
+
+/* success state */
+.success-icon{font-size:3rem;margin-bottom:0.75rem;animation:popIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both}
+@keyframes popIn{from{transform:scale(0)}to{transform:scale(1)}}
+.uid-row{display:flex;align-items:center;gap:8px;background:var(--s3);border:1px solid var(--border);border-radius:10px;padding:0.6rem 0.85rem;margin:0.75rem 0;text-align:left}
+.uid-val{flex:1;font-family:monospace;font-size:0.78rem;color:var(--a2);word-break:break-all}
+.uid-copy{background:rgba(232,255,71,0.1);border:1px solid rgba(232,255,71,0.2);border-radius:7px;padding:4px 10px;font-size:0.72rem;color:var(--a1);cursor:pointer;font-family:var(--fb);font-weight:600;flex-shrink:0;transition:all 0.15s}
+.uid-copy:hover{background:rgba(232,255,71,0.2)}
+.back-btn{width:100%;background:var(--a1);color:#07080a;border:none;border-radius:12px;padding:0.8rem;font-family:var(--fb);font-weight:700;font-size:0.88rem;cursor:pointer;margin-top:0.5rem;transition:opacity 0.15s}
+.back-btn:hover{opacity:0.85}
+
+/* grant states */
+.gstate{display:none}.gstate.active{display:block}
+/* already synced state */
+.already-icon{font-size:3rem;margin-bottom:0.75rem}
+.synced-info{background:rgba(71,255,232,0.06);border:1px solid rgba(71,255,232,0.15);border-radius:12px;padding:0.85rem 1rem;margin:0.75rem 0;font-size:0.8rem;color:var(--t2);line-height:1.7;text-align:left}
+.synced-info strong{color:var(--a2)}
+</style>
+</head>
+<body>
+<div class="blob blob1"></div>
+<div class="blob blob2"></div>
+
+<!-- ══ DASHBOARD ══ -->
+<div class="wrap">
+  <nav class="nav">
+    <div class="nav-logo">Fit<span>Board</span></div>
+    <div class="nav-right">
+      <span class="last-updated" id="lastUpdated"></span>
+      <!-- Refresh -->
+      <button class="btn btn-ghost btn-refresh" id="refreshBtn" onclick="refreshDashboard()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Refresh
+      </button>
+      <!-- Add your data button -->
+      <button class="btn btn-accent" onclick="openGrant()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add your data
+      </button>
+    </div>
+  </nav>
+
+  <!-- Admin: manage members panel -->
+  <div class="manage-panel" id="managePanel">
+    <div class="manage-head">
+      <div>
+        <div class="manage-title">👑 Manage members</div>
+        <div class="manage-subtitle">Check members to show on the dashboard. Changes are saved to Firebase and visible to all viewers instantly.</div>
+      </div>
+      <div class="manage-actions">
+        <span class="manage-saved" id="manageSaved">✓ Saved</span>
+        <button class="manage-apply" id="manageApplyBtn" onclick="saveVisibleMembers()">Apply changes</button>
+      </div>
+    </div>
+    <div class="manage-list" id="manageList"><div class="no-members">No members have synced yet. Share the page and ask members to click "Add your data".</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-row">
+    <div class="tabs">
+      <button class="tab active" onclick="setTab('week',this)">This week</button>
+      <button class="tab" onclick="setTab('month',this)">This month</button>
+      <button class="tab" onclick="setTab('7d',this)">Last 7 days</button>
+      <button class="tab" onclick="setTab('30d',this)">Last 30 days</button>
+      <button class="tab" onclick="setTab('alltime',this)">All time</button>
+    </div>
+    <div class="metric-toggle">
+      <button class="mtab active" onclick="setMetric('steps',this)">Steps</button>
+      <button class="mtab" onclick="setMetric('calories',this)">Calories</button>
+      <button class="mtab" onclick="setMetric('distance',this)">Distance</button>
+    </div>
+    <div class="filter-wrap" id="filterWrap">
+      <button class="filter-btn" id="filterBtn" onclick="toggleFilter()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+        <span id="filterLabel">All members</span>
+      </button>
+      <div class="filter-dropdown" id="filterDropdown">
+        <div class="filter-header">
+          <span class="filter-title">Compare members</span>
+          <button class="filter-clear" onclick="clearFilter()">Show all</button>
+        </div>
+        <div class="filter-list" id="filterList"></div>
+        <button class="filter-apply" onclick="applyFilter()">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="compare-banner" id="compareBanner">
+    <span id="compareBannerText"></span>
+    <button onclick="clearFilter()" style="background:none;border:none;color:#c77dff;cursor:pointer;font-size:0.75rem;font-family:var(--fb);font-weight:600;flex-shrink:0">✕ Clear</button>
+  </div>
+
+  <div class="sync-bar">
+    <span class="sync-msg" id="syncStatus">Loading…</span>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat hi"><div class="stat-label">Leader</div><div class="stat-val" id="stLeader">—</div><div class="stat-sub" id="stLeaderVal"></div></div>
+    <div class="stat"><div class="stat-label">Members</div><div class="stat-val dim" id="stMembers">—</div><div class="stat-sub">on leaderboard</div></div>
+    <div class="stat"><div class="stat-label">Group total</div><div class="stat-val dim" id="stGroupTotal">—</div><div class="stat-sub" id="stGroupLabel">steps combined</div></div>
+    <div class="stat"><div class="stat-label">Average</div><div class="stat-val dim" id="stAvg">—</div><div class="stat-sub" id="stAvgLabel">per member</div></div>
+  </div>
+
+  <div class="dash">
+    <div>
+      <div class="panel">
+        <div class="panel-head"><div><div class="panel-title">Daily trend</div><div class="panel-sub" id="lineChartSub">Steps per member</div></div></div>
+        <div class="chart-wrap"><canvas id="lineChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><div class="panel-title">Total comparison</div><div class="panel-sub" id="barChartSub">Steps per member</div></div></div>
+        <div class="chart-wrap"><canvas id="barChart"></canvas></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel" style="padding:1.25rem">
+        <div class="panel-head"><div><div class="panel-title">Leaderboard</div><div class="panel-sub" id="lbSub">—</div></div></div>
+        <div id="boardContainer"><div class="loading"><div class="spin"></div>Loading…</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GRANT OVERLAY ══ -->
+<div class="overlay" id="grantOverlay">
+  <div class="grant-modal">
+    <button class="grant-close" onclick="closeGrant()" title="Close">✕</button>
+
+    <!-- STATE: connect -->
+    <div class="gstate active" id="gConnect">
+      <div class="grant-icon">🏃</div>
+      <h2>Add your data</h2>
+      <p>Connect your Google Fit account once. Your steps, distance and calories will sync to the leaderboard.</p>
+      <div class="scope-list">
+        <div class="scope-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          View your physical activity (steps, calories)
+        </div>
+        <div class="scope-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          View your distance data
+        </div>
+        <div class="scope-item no">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          No Gmail, Photos, Contacts or Drive access
+        </div>
+      </div>
+      <button class="google-btn" id="connectBtn" onclick="handleConnect()">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+        Connect with Google
+      </button>
+      <div class="grant-note">You only need to do this once.</div>
+    </div>
+
+    <!-- STATE: syncing -->
+    <div class="gstate" id="gSyncing">
+      <div class="grant-icon">⚡</div>
+      <h2>Syncing your data</h2>
+      <p>Fetching your step history from Google Fit…</p>
+      <div class="progress-wrap">
+        <div class="progress-msg" id="gProgressMsg">Connecting…</div>
+        <div class="progress-bar"><div class="progress-fill" id="gProgressFill"></div></div>
+        <div class="progress-detail" id="gProgressDetail">Please wait</div>
+      </div>
+      <div class="grant-note">Don't close this popup until sync is complete.</div>
+    </div>
+
+    <!-- STATE: success -->
+    <div class="gstate" id="gSuccess">
+      <div class="success-icon">✅</div>
+      <h2>Sync successful!</h2>
+      <p id="gSuccessMsg">Your fitness data is now saved. Share your Member ID with the admin to be added to the dashboard.</p>
+      <div class="uid-row">
+        <div>
+          <div style="font-size:0.65rem;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px">Your member ID</div>
+          <div class="uid-val" id="gUidVal">—</div>
+        </div>
+        <button class="uid-copy" onclick="copyUID()">Copy</button>
+      </div>
+      <button class="back-btn" onclick="closeGrant()">Back to dashboard</button>
+    </div>
+
+    <!-- STATE: already synced -->
+    <div class="gstate" id="gAlready">
+      <div class="already-icon">✅</div>
+      <h2>Already synced!</h2>
+      <p>Your data is already saved in the leaderboard.</p>
+      <div class="synced-info">
+        <strong>Last synced:</strong> <span id="gAlreadyTime">—</span><br/>
+        <strong>Member ID:</strong> <span id="gAlreadyUID">—</span>
+      </div>
+      <div class="uid-row">
+        <div>
+          <div style="font-size:0.65rem;color:var(--t3);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px">Your member ID</div>
+          <div class="uid-val" id="gAlreadyUIDVal">—</div>
+        </div>
+        <button class="uid-copy" id="copyAlreadyBtn" onclick="copyAlreadyUID()">Copy</button>
+      </div>
+      <button class="back-btn" onclick="closeGrant()">Back to dashboard</button>
+      <button class="back-btn" id="resyncBtn" style="background:var(--s3);color:var(--t2);margin-top:8px" onclick="resyncData()">🔄 Update my data</button>
+    </div>
+
+    <!-- STATE: error -->
+    <div class="gstate" id="gError">
+      <div class="grant-icon">⚠️</div>
+      <h2>Something went wrong</h2>
+      <p id="gErrorMsg" style="color:var(--a3);font-size:0.82rem"></p>
+      <button class="back-btn" style="background:var(--s3);color:var(--t1)" onclick="resetGrant()">Try again</button>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// ══ CONFIG ════════════════════════════════════════════════════════════════
+const CLIENT_ID = '27023817809-c98j5ba0gdplg8su52ord7uasbn0fugu.apps.googleusercontent.com';
+const SCOPES    = 'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.location.read';
+
+const FB_CONFIG = {
+  apiKey:            'AIzaSyAeHufFkKhw2zE3ZI9BFq5Wj6dFhbIOQzI',
+  authDomain:        'fitboard-498308.firebaseapp.com',
+  databaseURL:       'https://fitboard-498308-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId:         'fitboard-498308',
+  storageBucket:     'fitboard-498308.firebasestorage.app',
+  messagingSenderId: '27023817809',
+  appId:             '1:27023817809:web:9db68a2d94557649360c70'
+};
+
+// ── Admin UIDs — these users see the "Manage members" panel ──────────────
+// After signing in via "Add your data", your UID is shown on the success
+// screen. Add it here and redeploy to get admin access.
+// Example: const ADMIN_UIDS = ['u_44xzerbo'];
+const ADMIN_UIDS = ['YOUR_ADMIN_UID'];
+// ══════════════════════════════════════════════════════════════════════════
+
+const COLORS    = ['#e8ff47','#47ffe8','#ff6b6b','#c77dff','#ffd166','#06d6a0','#ef476f','#118ab2'];
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MS_DAY    = 86400000;
+
+// dashboard state
+let currentTab='week', currentMetric='steps';
+// visibleMembers = UIDs admin chose to show (saved in Firebase fitboard/visible)
+let visibleMembers=[];
+// compareFilter = UIDs selected in the compare dropdown (local only)
+let compareFilter=new Set(), pendingCompare=new Set();
+let allEntries=[], rawAllDaily={}, rawAllMeta={};
+let lineChartInst=null, barChartInst=null, db=null;
+let isAdmin=false;
+
+// grant state
+let tokenClient=null, grantToken=null, grantUID=null, grantRefreshToken=null;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+window.onload=()=>{
+  if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+  db=firebase.database();
+  loadDashboard();
+  // Init GSI silently — ready for when user clicks "Add your data"
+  if(typeof google!=='undefined'&&google.accounts) initGSI();
+  else setTimeout(initGSI,1000);
+};
+function initGSI(){
+  if(CLIENT_ID==='YOUR_GOOGLE_CLIENT_ID') return;
+  tokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:CLIENT_ID,
+    scope:SCOPES,
+    callback:onGrantToken,
+    // Request offline access so we get a refresh token for background sync
+    access_type:'offline',
+    prompt:'consent'
+  });
+}
+
+// ── Date helpers ──────────────────────────────────────────────────────────
+function dateKey(d){const off=d.getTimezoneOffset();return new Date(d.getTime()-off*60000).toISOString().slice(0,10);}
+function yesterday(){const d=new Date();d.setDate(d.getDate()-1);d.setHours(0,0,0,0);return d;}
+function startOfWeek(){const d=new Date();d.setDate(d.getDate()-d.getDay());d.setHours(0,0,0,0);return d;}
+function startOfMonth(){const d=new Date();d.setDate(1);d.setHours(0,0,0,0);return d;}
+function nDaysAgo(n){return new Date(new Date().setHours(0,0,0,0)-n*MS_DAY);}
+function timeAgo(ts){
+  if(!ts)return'never';const m=Math.floor((Date.now()-ts)/60000);
+  if(m<1)return'just now';if(m<60)return m+'m ago';
+  const h=Math.floor(m/60);if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago';
+}
+function dateRange(startDate){
+  const keys=[],end=yesterday(),cur=new Date(startDate);
+  while(cur<=end){keys.push(dateKey(cur));cur.setDate(cur.getDate()+1);}
+  return keys;
+}
+function getUID(googleSub){
+  // Use Google account sub (unique per Google account) as UID
+  // This means same person on any device gets same UID
+  if(googleSub){
+    // Hash the sub to make it shorter and safe for Firebase keys
+    const uid='g_'+googleSub.slice(-10);
+    localStorage.setItem('fb_uid',uid); // cache locally too
+    return uid;
+  }
+  // Fallback to cached UID if available
+  const cached=localStorage.getItem('fb_uid');
+  if(cached) return cached;
+  // Last resort: random (only if Google sub unavailable)
+  const id='u_'+Math.random().toString(36).slice(2,10);
+  localStorage.setItem('fb_uid',id);
+  return id;
+}
+
+// ══ GRANT FLOW ════════════════════════════════════════════════════════════
+async function openGrant(){
+  setGState('Connect');
+  document.getElementById('connectBtn').disabled=false;
+  document.getElementById('grantOverlay').classList.add('open');
+
+  // Only trust Google-account-derived UIDs (g_ prefix)
+  // Old random UIDs (u_ prefix) must go through fresh Google sign-in to get proper g_ UID
+  const existingUID=localStorage.getItem('fb_uid');
+  if(existingUID && existingUID.startsWith('g_') && db){
+    try{
+      const metaSnap=await db.ref(`fitboard/meta/${existingUID}`).once('value');
+      const meta=metaSnap.val();
+      if(meta&&meta.lastSync){
+        const d=new Date(meta.lastSync);
+        const fmt=d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+        document.getElementById('gAlreadyTime').textContent=fmt;
+        document.getElementById('gAlreadyUID').textContent=existingUID;
+        document.getElementById('gAlreadyUIDVal').textContent=existingUID;
+        grantUID=existingUID;
+        setGState('Already');
+      }
+    }catch(e){console.warn('Firebase check failed:',e);}
+  }
+  // If old u_ UID found — silently clear it so fresh sign-in generates proper g_ UID
+  if(existingUID && existingUID.startsWith('u_')){
+    localStorage.removeItem('fb_uid');
+    localStorage.removeItem('fb_session');
+    console.log('Old u_ UID cleared — will generate g_ UID on next sign-in');
+  }
+}
+function closeGrant(){
+  document.getElementById('grantOverlay').classList.remove('open');
+  // refresh dashboard after sync so new data might appear
+  if(grantToken) loadDashboard();
+}
+function resetGrant(){setGState('Connect');document.getElementById('connectBtn').disabled=false;}
+function setGState(name){
+  ['gConnect','gSyncing','gSuccess','gAlready','gError'].forEach(id=>{
+    document.getElementById(id).classList.toggle('active',id==='g'+name);
+  });
+}
+function setProgress(pct,msg,detail){
+  document.getElementById('gProgressFill').style.width=pct+'%';
+  document.getElementById('gProgressMsg').innerHTML=msg;
+  if(detail!==undefined) document.getElementById('gProgressDetail').textContent=detail;
+}
+function handleConnect(){
+  if(CLIENT_ID==='YOUR_GOOGLE_CLIENT_ID'){
+    alert('CLIENT_ID not configured. Please fill in your Google OAuth Client ID in the script.');
+    return;
+  }
+  document.getElementById('connectBtn').disabled=true;
+  tokenClient.requestAccessToken();
+}
+async function onGrantToken(resp){
+  if(resp.error){showGrantError('Google sign-in failed: '+resp.error);return;}
+  grantToken=resp.access_token;
+  // Capture refresh token if Google returns one (only on first consent or access_type=offline)
+  if(resp.refresh_token) grantRefreshToken=resp.refresh_token;
+
+  // Clear any old u_ UID so we always use the Google-account-tied g_ UID
+  const oldUID=localStorage.getItem('fb_uid');
+  if(oldUID&&oldUID.startsWith('u_')) localStorage.removeItem('fb_uid');
+
+  // Fetch Google account sub — this is unique per Google account across all devices
+  try{
+    const info=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{
+      headers:{Authorization:'Bearer '+grantToken}
+    }).then(r=>r.json());
+    grantUID=getUID(info.sub);
+    // Pre-fill name from Google profile if not set
+    if(!localStorage.getItem('fb_name')&&info.name){
+      localStorage.setItem('fb_name',info.name.split(' ')[0]);
+    }
+  }catch(e){
+    console.warn('Could not fetch Google profile, using fallback UID');
+    grantUID=getUID();
+  }
+
+  // Block re-sync — check Firebase before proceeding
+  try{
+    const metaSnap=await db.ref(`fitboard/meta/${grantUID}`).once('value');
+    const meta=metaSnap.val();
+    if(meta&&meta.lastSync){
+      const d=new Date(meta.lastSync);
+      const fmt=d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      document.getElementById('gAlreadyTime').textContent=fmt;
+      document.getElementById('gAlreadyUID').textContent=grantUID;
+      document.getElementById('gAlreadyUIDVal').textContent=grantUID;
+      setGState('Already');
+      return;
+    }
+  }catch(e){console.warn('Firebase pre-check failed, continuing with sync:',e);}
+
+  let name=localStorage.getItem('fb_name');
+  if(!name){
+    name=prompt('Enter your display name for the leaderboard:')||'Member';
+    name=name.trim().slice(0,20);
+    localStorage.setItem('fb_name',name);
+  }
+  setGState('Syncing');
+  try{await runGrantSync(name);}
+  catch(e){console.error(e);showGrantError('Sync failed: '+e.message);}
+}
+function showGrantError(msg){
+  document.getElementById('gErrorMsg').textContent=msg;
+  setGState('Error');
+}
+function copyUID(){
+  navigator.clipboard.writeText(grantUID||'').then(()=>{
+    const b=document.querySelector('.uid-copy');b.textContent='Copied!';
+    setTimeout(()=>b.textContent='Copy',2000);
+  });
+}
+async function resyncData(){
+  showGrantSuccess._isResync=true;
+  document.getElementById('resyncBtn').disabled=true;
+  document.getElementById('resyncBtn').textContent='Connecting…';
+  // Clear Firebase data so everything resyncs fresh
+  if(grantUID&&db){
+    await db.ref(`fitboard/daily/${grantUID}`).remove();
+    await db.ref(`fitboard/meta/${grantUID}`).update({lastSync:0});
+  }
+  // Reuse existing token if available, otherwise ask to sign in again
+  if(grantToken){
+    const name=localStorage.getItem('fb_name')||'Member';
+    setGState('Syncing');
+    try{await runGrantSync(name);}
+    catch(e){showGrantError('Resync failed: '+e.message);}
+  } else {
+    setGState('Connect');
+    document.getElementById('connectBtn').disabled=false;
+    document.getElementById('connectBtn').textContent='Sign in to update data';
+  }
+}
+
+function copyAlreadyUID(){
+  const uid=document.getElementById('gAlreadyUIDVal').textContent;
+  navigator.clipboard.writeText(uid).then(()=>{
+    const b=document.getElementById('copyAlreadyBtn');
+    if(b){b.textContent='Copied!';setTimeout(()=>b.textContent='Copy',2000);}
+  });
+}
+
+// ── Google Fit fetchers (used by grant sync) ──────────────────────────────
+async function fetchStepsCalories(tok,startMs,endMs){
+  const body={aggregateBy:[{dataTypeName:'com.google.step_count.delta'},{dataTypeName:'com.google.calories.expended'}],bucketByTime:{durationMillis:MS_DAY},startTimeMillis:startMs,endTimeMillis:endMs};
+  const r=await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',{method:'POST',headers:{Authorization:'Bearer '+tok,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await r.json();
+  if(data.error)throw new Error('Steps API: '+data.error.message);
+  const rows={};
+  for(const bucket of(data.bucket||[])){
+    const d=dateKey(new Date(parseInt(bucket.startTimeMillis)));
+    if(!rows[d])rows[d]={date:d,steps:0,calories:0,distance_km:0};
+    for(const ds of bucket.dataset)for(const pt of(ds.point||[])){const v=pt.value&&pt.value[0];if(!v)continue;if(ds.dataSourceId.includes('step_count'))rows[d].steps+=v.intVal||0;if(ds.dataSourceId.includes('calories'))rows[d].calories+=Math.round(v.fpVal||0);}
+  }
+  return rows;
+}
+async function fetchDistance(tok,startMs,endMs){
+  const body={aggregateBy:[{dataTypeName:'com.google.distance.delta'}],bucketByTime:{durationMillis:MS_DAY},startTimeMillis:startMs,endTimeMillis:endMs};
+  try{
+    const r=await fetch('https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',{method:'POST',headers:{Authorization:'Bearer '+tok,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await r.json();
+    if(data.error){console.warn('Distance failed:',data.error.message);return{};}
+    const dist={};
+    for(const bucket of(data.bucket||[])){
+      const d=dateKey(new Date(parseInt(bucket.startTimeMillis)));
+      let distM=0;for(const ds of bucket.dataset)for(const pt of(ds.point||[])){const v=pt.value&&pt.value[0];if(v)distM+=v.fpVal||0;}
+      dist[d]=Math.round(distM/10)/100;
+    }
+    return dist;
+  }catch(e){console.warn('Distance exception:',e);return{};}
+}
+
+// ── Run the full sync ─────────────────────────────────────────────────────
+async function runGrantSync(name){
+  setProgress(5,'Reading existing data…','Checking what needs to be synced');
+  const snap=await db.ref(`fitboard/daily/${grantUID}`).once('value');
+  const stored=snap.val()||{};
+  const storedKeys=new Set(Object.keys(stored));
+  const zeroDist=new Set(Object.entries(stored).filter(([,v])=>!v.distance_km||v.distance_km===0).map(([k])=>k));
+  const allKeys=dateRange(nDaysAgo(90));
+  const missing=allKeys.filter(k=>!storedKeys.has(k)||zeroDist.has(k));
+
+  if(!missing.length){
+    setProgress(100,'<strong>Already up to date ✓</strong>','No new days to sync');
+    await db.ref(`fitboard/meta/${grantUID}`).update({name,lastSync:Date.now()});
+    setTimeout(()=>showGrantSuccess(),600);
+    return;
+  }
+
+  setProgress(15,`Fetching <strong>${missing.length}</strong> day(s) from Google Fit…`,'First sync may take a moment');
+  const BATCH=90;let done=0;
+  for(let i=0;i<missing.length;i+=BATCH){
+    const batch=missing.slice(i,i+BATCH);
+    const startMs=new Date(batch[0]+'T00:00:00').getTime();
+    const lastDay=new Date(batch[batch.length-1]+'T00:00:00');lastDay.setDate(lastDay.getDate()+1);
+    const[scRows,distMap]=await Promise.all([fetchStepsCalories(grantToken,startMs,lastDay.getTime()),fetchDistance(grantToken,startMs,lastDay.getTime())]);
+    for(const k of Object.keys(scRows))scRows[k].distance_km=distMap[k]||0;
+    const updates={};
+    for(const k of batch){
+      if(scRows[k])updates[`fitboard/daily/${grantUID}/${k}`]=scRows[k];
+      else updates[`fitboard/daily/${grantUID}/${k}`]={date:k,steps:0,calories:0,distance_km:0};
+    }
+    await db.ref().update(updates);
+    done+=batch.length;
+    setProgress(Math.round(15+(done/missing.length)*80),`Synced <strong>${done}</strong> of <strong>${missing.length}</strong> days…`,batch[batch.length-1]);
+  }
+  setProgress(98,'Saving profile…','');
+  await db.ref(`fitboard/meta/${grantUID}`).set({name,lastSync:Date.now()});
+  // Save refresh token for background auto-sync (Cloud Function uses this)
+  if(grantRefreshToken){
+    await db.ref(`fitboard/tokens/${grantUID}`).set({
+      refreshToken: grantRefreshToken,
+      updatedAt: Date.now()
+    });
+  }
+  setProgress(100,'<strong>Sync complete!</strong>','');
+  setTimeout(()=>showGrantSuccess(),400);
+}
+function showGrantSuccess(){
+  document.getElementById('gUidVal').textContent=grantUID;
+  setGState('Success');
+  if(showGrantSuccess._isResync){
+    showGrantSuccess._isResync=false;
+    document.getElementById('gSuccessMsg').textContent='Your data has been updated successfully. Returning to dashboard…';
+    setTimeout(()=>closeGrant(),3000);
+  } else {
+    document.getElementById('gSuccessMsg').textContent='Your fitness data is now saved. Share your Member ID with the admin to be added to the dashboard.';
+  }
+}
+
+// ══ DASHBOARD ═════════════════════════════════════════════════════════════
+function setTab(t,el){
+  currentTab=t;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');
+  if(Object.keys(rawAllDaily).length)buildAndRenderFromRaw();
+}
+function setMetric(m,el){
+  currentMetric=m;document.querySelectorAll('.mtab').forEach(x=>x.classList.remove('active'));el.classList.add('active');
+  if(allEntries.length)rerender();
+}
+function toggleFilter(){
+  const dd=document.getElementById('filterDropdown');dd.classList.toggle('open');
+  if(dd.classList.contains('open'))setTimeout(()=>document.addEventListener('click',outsideClick),0);
+}
+function outsideClick(e){
+  if(!document.getElementById('filterWrap').contains(e.target)){document.getElementById('filterDropdown').classList.remove('open');document.removeEventListener('click',outsideClick);}
+}
+function buildFilterList(entries){
+  const newUids=entries.map(e=>e.uid).sort().join(',');
+  if(buildFilterList._last===newUids)return;buildFilterList._last=newUids;
+  pendingCompare=new Set(compareFilter);
+  const list=document.getElementById('filterList');list.innerHTML='';
+  entries.forEach(e=>{
+    const checked=compareFilter.size===0||compareFilter.has(e.uid);
+    const item=document.createElement('label');item.className='filter-item';
+    item.innerHTML=`<input type="checkbox" value="${e.uid}" ${checked?'checked':''} onchange="onFilterCheck(this)"/><span class="filter-item-name">${e.name}</span>`;
+    list.appendChild(item);
+  });
+}
+function onFilterCheck(cb){if(cb.checked)pendingCompare.add(cb.value);else pendingCompare.delete(cb.value);}
+function applyFilter(){
+  const allUids=allEntries.map(e=>e.uid);
+  compareFilter=allUids.every(u=>pendingCompare.has(u))||pendingCompare.size===0?new Set():new Set(pendingCompare);
+  document.getElementById('filterDropdown').classList.remove('open');updateFilterUI();rerender();
+}
+function clearFilter(){
+  compareFilter=new Set();pendingCompare=new Set();
+  document.querySelectorAll('#filterList input').forEach(cb=>cb.checked=true);
+  updateFilterUI();rerender();
+}
+function updateFilterUI(){
+  const btn=document.getElementById('filterBtn'),banner=document.getElementById('compareBanner');
+  if(compareFilter.size>0){
+    document.getElementById('filterLabel').textContent=compareFilter.size+' selected';
+    btn.classList.add('has-filter');
+    document.getElementById('compareBannerText').textContent='Comparing: '+allEntries.filter(e=>compareFilter.has(e.uid)).map(e=>e.name).join(', ');
+    banner.classList.add('visible');
+  }else{
+    document.getElementById('filterLabel').textContent='All members';btn.classList.remove('has-filter');banner.classList.remove('visible');
+  }
+}
+
+async function loadDashboard(){
+  setStatus('Loading…','');
+
+  // Check if current browser user is an admin (uses Google-based UID from localStorage)
+  const myUID=localStorage.getItem('fb_uid');
+  isAdmin=!!(myUID&&ADMIN_UIDS.includes(myUID));
+  console.log('[FitBoard] myUID:', myUID, '| isAdmin:', isAdmin);
+  if(isAdmin) document.getElementById('managePanel').classList.add('visible');
+
+  // Central render function — reads both rawAllDaily and visibleMembers
+  const doRender=(allDaily)=>{
+    rawAllDaily={};
+    if(visibleMembers.length){
+      // Admin has set a visible list — show only those
+      for(const uid of visibleMembers){if(allDaily[uid])rawAllDaily[uid]=allDaily[uid];}
+    } else {
+      // No visible list set yet — show ALL synced members (so admin can see data)
+      rawAllDaily=allDaily;
+    }
+    if(isAdmin) renderManagePanel(rawAllMeta, visibleMembers);
+    buildAndRenderFromRaw();
+    const latest=Math.max(0,...Object.values(rawAllMeta).map(m=>m.lastSync||0));
+    if(latest) document.getElementById('lastUpdated').textContent='Synced '+timeAgo(latest);
+  };
+
+  // Step 1: Read everything once immediately so dashboard renders right away
+  console.log('[FitBoard] Starting dashboard load...');
+  const [visSnap,metaSnap,dailySnap] = await Promise.all([
+    db.ref('fitboard/visible').once('value'),
+    db.ref('fitboard/meta').once('value'),
+    db.ref('fitboard/daily').once('value')
+  ]);
+  const visData=visSnap.val();
+  visibleMembers=visData?Object.values(visData):[];
+  rawAllMeta=metaSnap.val()||{};
+  const initialDaily=dailySnap.val()||{};
+
+  doRender(initialDaily);
+
+  // Step 2: Listen for live updates going forward
+  db.ref('fitboard/visible').on('value',snap=>{
+    const vd=snap.val();
+    visibleMembers=vd?Object.values(vd):[];
+    // Re-read meta + daily when visible list changes
+    Promise.all([
+      db.ref('fitboard/meta').once('value'),
+      db.ref('fitboard/daily').once('value')
+    ]).then(([ms,ds])=>{
+      rawAllMeta=ms.val()||{};
+      doRender(ds.val()||{});
+    });
+  });
+
+  db.ref('fitboard/daily').on('value',snap=>{
+    doRender(snap.val()||{});
+  });
+
+  db.ref('fitboard/meta').on('value',snap=>{
+    rawAllMeta=snap.val()||{};
+    if(isAdmin) renderManagePanel(rawAllMeta, visibleMembers);
+  });
+
+  document.getElementById('lastUpdated').textContent='Live';
+}
+async function refreshDashboard(){
+  const btn=document.getElementById('refreshBtn');btn.classList.add('spinning');btn.disabled=true;
+  await loadDashboard();btn.classList.remove('spinning');btn.disabled=false;
+}
+
+// ── Admin: render manage panel ────────────────────────────────────────────
+function renderManagePanel(allMeta, currentVisible){
+  const list=document.getElementById('manageList');
+  const uids=Object.keys(allMeta);
+  if(!uids.length){
+    list.innerHTML='<div class="no-members">No members have synced yet.</div>';
+    return;
+  }
+  list.innerHTML='';
+  uids.forEach((uid,i)=>{
+    const meta=allMeta[uid]||{};
+    const checked=currentVisible.includes(uid);
+    const col=COLORS[i%COLORS.length];
+    const ini=(meta.name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const item=document.createElement('label');
+    item.className='manage-item'+(checked?' active':'');
+    item.innerHTML=`
+      <input type="checkbox" value="${uid}" ${checked?'checked':''} onchange="onManageCheck(this)"/>
+      <div class="manage-item-av" style="background:${col}22;color:${col};border:1px solid ${col}44">${ini}</div>
+      <div class="manage-item-info">
+        <div class="manage-item-name">${meta.name||'Unknown'}</div>
+        <div class="manage-item-sync">${meta.lastSync?'Synced '+timeAgo(meta.lastSync):'Never synced'}</div>
+      </div>`;
+    item.querySelector('input').addEventListener('change',function(){
+      item.classList.toggle('active',this.checked);
+    });
+    list.appendChild(item);
+  });
+}
+
+function onManageCheck(cb){
+  // visual handled by label change listener
+}
+
+async function saveVisibleMembers(){
+  const btn=document.getElementById('manageApplyBtn');
+  btn.classList.add('saving');btn.textContent='Saving…';
+  const checked=[...document.querySelectorAll('#manageList input:checked')].map(cb=>cb.value);
+  // Save to Firebase as object (Firebase doesn't store arrays natively)
+  const obj={};checked.forEach((uid,i)=>obj[i]=uid);
+  await db.ref('fitboard/visible').set(obj);
+  btn.classList.remove('saving');btn.textContent='Apply changes';
+  const saved=document.getElementById('manageSaved');
+  saved.classList.add('show');setTimeout(()=>saved.classList.remove('show'),2000);
+}
+
+function tabStartDate(){
+  if(currentTab==='week')  return dateKey(startOfWeek());
+  if(currentTab==='month') return dateKey(startOfMonth());
+  if(currentTab==='7d')    return dateKey(nDaysAgo(7));
+  if(currentTab==='30d')   return dateKey(nDaysAgo(30));
+  return dateKey(nDaysAgo(365));
+}
+function sumDays(dayMap,startStr){
+  const endStr=dateKey(yesterday());let steps=0,dist=0,cal=0,days=[];
+  for(const[k,v] of Object.entries(dayMap)){
+    if(k>=startStr&&k<=endStr){steps+=v.steps||0;dist+=v.distance_km||0;cal+=v.calories||0;days.push({date:k,...v});}
+  }
+  days.sort((a,b)=>a.date.localeCompare(b.date));
+  return{steps,distance_km:Math.round(dist*100)/100,calories:Math.round(cal),days};
+}
+function metricVal(e){return currentMetric==='calories'?e.calories:currentMetric==='distance'?e.distance_km:e.steps;}
+function metricDayVal(d){return currentMetric==='calories'?d.calories||0:currentMetric==='distance'?d.distance_km||0:d.steps||0;}
+function metricUnit(){return currentMetric==='calories'?'kcal':currentMetric==='distance'?'km':'steps';}
+function metricFormat(v){return currentMetric==='distance'?v.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1}):Math.round(v).toLocaleString();}
+
+function buildAndRenderFromRaw(){
+  const startStr=tabStartDate(),entries=[];
+  // Use visibleMembers (set by admin via Firebase) — fallback to rawAllDaily keys
+  const uidsToShow=visibleMembers.length?visibleMembers:Object.keys(rawAllDaily);
+  for(const uid of uidsToShow){
+    const dayMap=rawAllDaily[uid];if(!dayMap)continue;
+    const meta=rawAllMeta[uid]||{};
+    const{steps,distance_km,calories,days}=sumDays(dayMap,startStr);
+    entries.push({uid,name:meta.name||'Member',steps,distance_km,calories,days,lastSync:meta.lastSync||0});
+  }
+  entries.sort((a,b)=>metricVal(b)-metricVal(a));
+  allEntries=entries;buildFilterList(entries);rerender();
+  const latest=Math.max(...entries.map(e=>e.lastSync||0));
+  if(latest)document.getElementById('lastUpdated').textContent='Synced '+timeAgo(latest);
+  setStatus(entries.length+' member'+(entries.length!==1?'s':'')+' · data up to '+dateKey(yesterday()),'ok');
+}
+
+function rerender(){
+  if(!allEntries.length){
+    document.getElementById('boardContainer').innerHTML='<div class="empty"><div class="empty-icon">🏃</div><p>No data yet.<br/>Members need to click <strong>Add your data</strong> and sync their Google Fit.</p></div>';
+    return;
+  }
+  const visible=compareFilter.size>0?allEntries.filter(e=>compareFilter.has(e.uid)):allEntries;
+  const sorted=[...visible].sort((a,b)=>metricVal(b)-metricVal(a));
+  const tabLabel=currentTab==='week'?'This week':currentTab==='month'?'This month':currentTab==='7d'?'Last 7 days':currentTab==='30d'?'Last 30 days':'All time';
+  renderStats(sorted);renderBoard(sorted);renderLineChart(sorted);renderBarChart(sorted);
+  document.getElementById('lbSub').textContent=tabLabel+' · '+sorted.length+' member'+(sorted.length!==1?'s':'');
+  document.getElementById('lineChartSub').textContent=metricUnit()[0].toUpperCase()+metricUnit().slice(1)+' per member — '+tabLabel.toLowerCase();
+  document.getElementById('barChartSub').textContent='Total '+metricUnit()+' per member';
+}
+function setStatus(msg,type){const el=document.getElementById('syncStatus');el.textContent=msg;el.className='sync-msg'+(type?' '+type:'');}
+
+function renderStats(entries){
+  const leader=entries[0]||{};
+  const groupTotal=entries.reduce((s,e)=>s+metricVal(e),0);
+  const avg=entries.length?Math.round(groupTotal/entries.length):0;
+  document.getElementById('stLeader').textContent=leader.name||'—';
+  document.getElementById('stLeaderVal').textContent=leader.steps?metricFormat(metricVal(leader))+' '+metricUnit():'';
+  document.getElementById('stMembers').textContent=entries.length;
+  document.getElementById('stGroupTotal').textContent=metricFormat(groupTotal);
+  document.getElementById('stGroupLabel').textContent=metricUnit()+' combined';
+  document.getElementById('stAvg').textContent=metricFormat(avg);
+  document.getElementById('stAvgLabel').textContent='avg '+metricUnit()+' per member';
+}
+
+function renderBoard(entries){
+  const c=document.getElementById('boardContainer');
+  if(!entries.length){c.innerHTML='<div class="empty"><div class="empty-icon">🏃</div><p>No data for this period.</p></div>';return;}
+  const maxVal=metricVal(entries[0])||1;
+  c.innerHTML='<div class="board-list"></div>';
+  const list=c.querySelector('.board-list');
+  entries.forEach((e,i)=>{
+    const rank=i+1,pct=Math.round(metricVal(e)/maxVal*100),col=COLORS[i%COLORS.length];
+    const ini=(e.name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const medal=rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank;
+    const rc=rank===1?'g':rank===2?'s':rank===3?'b':'';
+    const el=document.createElement('div');el.className='board-item';
+    el.innerHTML=`<div class="rank-num ${rc}">${medal}</div><div class="av-lg" style="background:${col}22;color:${col};border:1px solid ${col}44">${ini}</div><div class="entry-info"><div class="entry-name">${e.name}</div><div class="entry-sub">${e.steps.toLocaleString()} steps · ${e.distance_km} km · ${e.calories.toLocaleString()} kcal · ${timeAgo(e.lastSync)}</div></div><div class="entry-metric"><div class="entry-metric-n">${metricFormat(metricVal(e))}</div><div class="entry-metric-l">${metricUnit()}</div></div><div class="entry-bar" style="width:${pct}%"></div>`;
+    list.appendChild(el);
+  });
+}
+
+function renderLineChart(entries){
+  const ctx=document.getElementById('lineChart').getContext('2d');
+  if(lineChartInst)lineChartInst.destroy();
+  const startStr=tabStartDate(),endD=yesterday(),labels=[];
+  const cur=new Date(startStr+'T00:00:00');
+  while(cur<=endD){labels.push(dateKey(cur));cur.setDate(cur.getDate()+1);}
+  const step=Math.ceil(labels.length/14)||1;
+  const xLabels=labels.map((k,i)=>{if(i%step!==0)return'';const d=new Date(k+'T00:00:00');return DAY_NAMES[d.getDay()]+' '+d.getDate();});
+  const datasets=entries.slice(0,8).map((e,i)=>{
+    const col=COLORS[i%COLORS.length];
+    const dayMap=Object.fromEntries((e.days||[]).map(d=>[d.date,d]));
+    return{label:e.name,data:labels.map(k=>dayMap[k]?metricDayVal(dayMap[k]):0),borderColor:col,backgroundColor:col+'15',borderWidth:2,pointRadius:2,tension:0.35,fill:false};
+  });
+  lineChartInst=new Chart(ctx,{type:'line',data:{labels:xLabels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#52535f',font:{family:'Outfit',size:10},maxRotation:0},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#52535f',font:{family:'Outfit',size:11},callback:v=>v>=1000?Math.round(v/1000)+'k':v},grid:{color:'rgba(255,255,255,0.04)'}}}}});
+}
+
+function renderBarChart(entries){
+  const ctx=document.getElementById('barChart').getContext('2d');
+  if(barChartInst)barChartInst.destroy();
+  const show=entries.slice(0,8);
+  const bgColors=show.map((_,i)=>COLORS[i%COLORS.length]+'cc');
+  const datasets=[{label:metricUnit(),data:show.map(e=>metricVal(e)),backgroundColor:bgColors,borderRadius:5,borderSkipped:false,yAxisID:'y'}];
+  if(currentMetric!=='steps')datasets.push({label:'steps',data:show.map(e=>e.steps),type:'line',borderColor:show.map((_,i)=>COLORS[(i+3)%COLORS.length]),backgroundColor:'transparent',borderWidth:1.5,pointRadius:3,tension:0.3,yAxisID:'y2',borderSkipped:false});
+  barChartInst=new Chart(ctx,{type:'bar',data:{labels:show.map(e=>e.name),datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#9899a8',font:{family:'Outfit',size:11},boxWidth:10,padding:14}}},scales:{x:{ticks:{color:'#9899a8',font:{family:'Outfit',size:11}},grid:{display:false}},y:{position:'left',ticks:{color:'#52535f',font:{family:'Outfit',size:11},callback:v=>v>=1000?Math.round(v/1000)+'k':v},grid:{color:'rgba(255,255,255,0.04)'}},y2:{display:currentMetric!=='steps',position:'right',ticks:{color:'#52535f',font:{family:'Outfit',size:10},callback:v=>v>=1000?Math.round(v/1000)+'k':v},grid:{display:false}}}}});
+}
+</script>
+</body>
+</html>
