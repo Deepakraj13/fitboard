@@ -411,37 +411,32 @@ function initGSI(){
 
 // ── Auto-sync on page load ─────────────────────────────────────────────────
 // If user previously connected and it's been > 6 hours, silently re-sync
-function autoSyncOnLoad(){
+// Auto-sync on page load
+// Uses sessionStorage token if available (same browser session = no re-login needed)
+async function autoSyncOnLoad(){
   const uid=localStorage.getItem('fb_uid');
-  if(!uid||!uid.startsWith('g_')) return; // only for connected users
+  if(!uid||!uid.startsWith('g_')) return;
+  // Check for valid token from this session
+  const storedToken=sessionStorage.getItem('fb_token');
+  const tokenTime=parseInt(sessionStorage.getItem('fb_token_time')||'0');
+  const tokenAge=(Date.now()-tokenTime)/1000/60;
+  if(!storedToken||tokenAge>55) return; // no valid token — skip silent sync
+  // Check if sync needed
   const lastSync=parseInt(localStorage.getItem('fb_lastSync')||'0');
   const hoursSince=(Date.now()-lastSync)/(1000*60*60);
-  if(hoursSince<6) return; // synced recently enough
-  // Try silent token refresh
-  if(CLIENT_ID==='YOUR_GOOGLE_CLIENT_ID') return;
+  if(hoursSince<1) return;
+  // Auto-sync in background
+  grantToken=storedToken;
+  grantUID=uid;
+  const name=localStorage.getItem('fb_name')||'Member';
+  setStatus('Auto-syncing your data…','');
   try{
-    // Use a separate silent token client
-    const silentClient=google.accounts.oauth2.initTokenClient({
-      client_id:CLIENT_ID,
-      scope:SCOPES,
-      prompt:'none', // no popup — silent
-      callback:async(resp)=>{
-        if(resp.error) return; // silently fail if not logged in
-        grantToken=resp.access_token;
-        grantUID=uid;
-        const name=localStorage.getItem('fb_name')||'Member';
-        setStatus('Auto-syncing…','');
-        try{
-          await runSync(name, true); // true = silent mode (no popup states)
-          localStorage.setItem('fb_lastSync',Date.now().toString());
-          setStatus('Data up to date ✓','ok');
-        }catch(e){
-          setStatus('Auto-sync failed — click "Add your data" to sync manually','err');
-        }
-      }
-    });
-    silentClient.requestAccessToken();
-  }catch(e){/* silent fail */}
+    await runSync(name,true);
+    localStorage.setItem('fb_lastSync',Date.now().toString());
+    setStatus('Data up to date ✓','ok');
+  }catch(e){
+    setStatus('Open "Add your data" to refresh','');
+  }
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────
@@ -471,28 +466,35 @@ function makeUID(googleSub){
 // ── Grant flow ────────────────────────────────────────────────────────────
 async function openGrant(){
   resetGrant();
-  document.getElementById('grantOverlay').classList.add('open');
-  // Check if already synced using g_ UID
+  // Clear old u_ UIDs
   const existingUID=localStorage.getItem('fb_uid');
-  if(existingUID&&existingUID.startsWith('g_')&&db){
+  if(existingUID&&existingUID.startsWith('u_')) localStorage.removeItem('fb_uid');
+  document.getElementById('grantOverlay').classList.add('open');
+
+  // Check if already synced using g_ UID
+  const currentUID=localStorage.getItem('fb_uid');
+  if(currentUID&&currentUID.startsWith('g_')&&db){
     try{
-      const snap=await db.ref(`fitboard/meta/${existingUID}`).once('value');
+      const snap=await db.ref(`fitboard/meta/${currentUID}`).once('value');
       const meta=snap.val();
       if(meta&&meta.lastSync){
         const d=new Date(meta.lastSync);
         const fmt=d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
         document.getElementById('gAlreadyTime').textContent=fmt;
-        document.getElementById('gAlreadyUID').textContent=existingUID;
-        document.getElementById('gAlreadyUIDVal').textContent=existingUID;
-        grantUID=existingUID;
+        document.getElementById('gAlreadyUID').textContent=currentUID;
+        document.getElementById('gAlreadyUIDVal').textContent=currentUID;
+        grantUID=currentUID;
+        // Also restore session token if available so Update works without re-login
+        const storedToken=sessionStorage.getItem('fb_token');
+        const tokenTime=parseInt(sessionStorage.getItem('fb_token_time')||'0');
+        if(storedToken&&(Date.now()-tokenTime)<55*60*1000){
+          grantToken=storedToken;
+        }
         setGState('Already');
         return;
       }
     }catch(e){}
   }
-  // Clear any old u_ UID
-  const old=localStorage.getItem('fb_uid');
-  if(old&&old.startsWith('u_')) localStorage.removeItem('fb_uid');
 }
 function closeGrant(){
   document.getElementById('grantOverlay').classList.remove('open');
@@ -523,11 +525,14 @@ function copyUID(valId,btnId){
 function handleConnect(){
   if(CLIENT_ID==='YOUR_GOOGLE_CLIENT_ID'){alert('Please fill in your Google Client ID in the CONFIG block.');return;}
   document.getElementById('connectBtn').disabled=true;
-  // Force consent screen so we always get the account sub
+  const existingUID=localStorage.getItem('fb_uid');
+  // Only force consent screen on first time (no existing g_ UID)
+  // After that, use select_account so user just picks account without re-consenting
+  const promptMode=(!existingUID||existingUID.startsWith('u_'))?'consent':'select_account';
   google.accounts.oauth2.initTokenClient({
     client_id:CLIENT_ID,
     scope:SCOPES,
-    prompt:'consent',
+    prompt:promptMode,
     callback:onGrantToken
   }).requestAccessToken();
 }
@@ -535,6 +540,9 @@ function handleConnect(){
 async function onGrantToken(resp){
   if(resp.error){showGrantError('Sign-in failed: '+resp.error);return;}
   grantToken=resp.access_token;
+  // Store token in sessionStorage for auto-sync during this browser session
+  sessionStorage.setItem('fb_token',grantToken);
+  sessionStorage.setItem('fb_token_time',Date.now().toString());
 
   // Get Google account sub (permanent unique ID per Google account)
   try{
@@ -587,17 +595,29 @@ async function resyncData(){
   document.getElementById('resyncBtn').disabled=true;
   document.getElementById('resyncBtn').textContent='Starting…';
   showGrantSuccess._isResync=true;
+
+  // Try to get token from session first (avoids re-login if still valid)
+  if(!grantToken){
+    const storedToken=sessionStorage.getItem('fb_token');
+    const tokenTime=parseInt(sessionStorage.getItem('fb_token_time')||'0');
+    if(storedToken&&(Date.now()-tokenTime)<55*60*1000){
+      grantToken=storedToken;
+    }
+  }
+
   if(grantUID&&db){
+    // Only clear daily data, keep meta so name is preserved
     await db.ref(`fitboard/daily/${grantUID}`).remove();
     await db.ref(`fitboard/meta/${grantUID}`).update({lastSync:0});
   }
+
   if(grantToken){
     const name=localStorage.getItem('fb_name')||'Member';
     setGState('Syncing');
     try{await runSync(name,false);}
     catch(e){showGrantError('Update failed: '+e.message);}
   } else {
-    // Need fresh token
+    // Token expired — need fresh sign-in
     setGState('Connect');
     document.getElementById('connectBtn').disabled=false;
     document.getElementById('connectBtn').textContent='Sign in to update data';
@@ -744,7 +764,9 @@ async function loadDashboard(){
   const visData=visSnap.val();
   visibleMembers=visData?Object.values(visData):[];
   rawAllMeta=metaSnap.val()||{};
-  doRender(dailySnap.val()||{});
+  const dailyData=dailySnap.val()||{};
+  console.log('[FitBoard] visible:', visibleMembers.length, '| meta:', Object.keys(rawAllMeta).length, '| daily:', Object.keys(dailyData).length);
+  doRender(dailyData);
 
   db.ref('fitboard/visible').on('value',snap=>{
     const vd=snap.val();visibleMembers=vd?Object.values(vd):[];
@@ -858,7 +880,9 @@ function renderBoard(entries){
     const medal=rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank;
     const rc=rank===1?'g':rank===2?'s':rank===3?'b':'';
     const el=document.createElement('div');el.className='board-item';
-    el.innerHTML=`<div class="rank-num ${rc}">${medal}</div><div class="av-lg" style="background:${col}22;color:${col};border:1px solid ${col}44">${ini}</div><div class="entry-info"><div class="entry-name">${e.name}</div><div class="entry-sub">${e.steps.toLocaleString()} steps · ${e.distance_km} km · ${e.calories.toLocaleString()} kcal · ${timeAgo(e.lastSync)}</div></div><div class="entry-metric"><div class="entry-metric-n">${metricFormat(metricVal(e))}</div><div class="entry-metric-l">${metricUnit()}</div></div><div class="entry-bar" style="width:${pct}%"></div>`;
+    const dayCount=e.days&&e.days.length>0?e.days.length:1;
+    const avgSteps=Math.round(e.steps/dayCount);
+    el.innerHTML=`<div class="rank-num ${rc}">${medal}</div><div class="av-lg" style="background:${col}22;color:${col};border:1px solid ${col}44">${ini}</div><div class="entry-info"><div class="entry-name">${e.name}</div><div class="entry-sub">${e.steps.toLocaleString()} steps · ${e.distance_km} km · ${e.calories.toLocaleString()} kcal · avg ${avgSteps.toLocaleString()} steps/day · ${timeAgo(e.lastSync)}</div></div><div class="entry-metric"><div class="entry-metric-n">${metricFormat(metricVal(e))}</div><div class="entry-metric-l">${metricUnit()}</div></div><div class="entry-bar" style="width:${pct}%"></div>`;
     list.appendChild(el);
   });
 }
